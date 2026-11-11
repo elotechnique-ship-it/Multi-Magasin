@@ -1,0 +1,49 @@
+{
+  "name": "commerce-saas",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=20.9"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:db": "supabase test db",
+    "check:static": "node scripts/check-migrations.mjs && node scripts/check-permission-drift.mjs && node scripts/check-secrets.mjs && node scripts/verify-pure-logic.mjs && node scripts/run-unit-tests.mjs",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:lint": "supabase db lint"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.6.1",
+    "@supabase/supabase-js": "^2.45.0",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "lucide-react": ">=0.400.0 <1",
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "server-only": "^0.0.1",
+    "tailwind-merge": "^2.5.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^15.0.0",
+    "postcss": "^8.4.47",
+    "supabase": "^2.0.0",
+    "tailwindcss": "^3.4.14",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
