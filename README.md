@@ -35,6 +35,10 @@ npm run dev
 | 8 | `npm run build` | Compilation de production |
 | 9 | `npm run test:e2e` | Redirections d'authentification, en-têtes de sécurité, sonde de santé |
 
+## Déploiement
+
+Railway (application) + Supabase (base, auth, stockage) : voir `docs/deployment-railway.md`. Préproduction uniquement tant que la Phase 1 n'est pas validée.
+
 ## Structure
 
 Voir `docs/architecture.md`. Points clés :

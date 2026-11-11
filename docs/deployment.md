@@ -1,5 +1,7 @@
 # Déploiement et exploitation
 
+Hébergement de l'application : **Railway** (voir `deployment-railway.md` pour la procédure pas à pas).
+
 > Aucun déploiement n'a été effectué. Ce document décrit la procédure cible ; chaque étape touchant la préproduction ou la production exige une autorisation écrite.
 
 ## 1. Environnements
