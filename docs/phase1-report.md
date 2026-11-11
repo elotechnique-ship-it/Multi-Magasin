@@ -1,5 +1,8 @@
 # Rapport de Phase 1 : Fondations
 
+> **Rapport relatif à l'option A (Supabase).** L'option B (décision du 11 nov. 2026) impose une revalidation (« Phase 1B ») : voir `option-b-plan.md`. Ce rapport reste valable pour la partie interface, design system et contrôles statiques.
+
+
 **Date :** 11 novembre 2026
 **Statut : LIVRÉE, NON VALIDÉE.** Le code est écrit et a passé tous les contrôles exécutables dans l'environnement de développement de cette session. Les contrôles qui exigent PostgreSQL, `npm install` ou un navigateur **n'ont pas pu être exécutés**. Conformément à la règle « ne pas passer à la phase suivante sans avoir terminé et testé », **la Phase 2 ne démarre pas** tant que la procédure de validation (README) n'a pas réussi sur une machine disposant de Docker et d'un accès réseau.
 

@@ -1,6 +1,7 @@
 # Commerce SaaS : plateforme de gestion commerciale multi-magasins
 
-Phase 1 (fondations) livrée, **en attente de validation d'exécution** (voir `docs/phase1-report.md`).
+**Direction retenue : option B (Railway seul, sans Supabase)**, voir `docs/option-b-plan.md` (plan en attente de validation).
+Le code actuel correspond à l'option A (Supabase) et sert de base de référence ; il sera adapté par lots B0 à B6.
 
 ## Prérequis
 

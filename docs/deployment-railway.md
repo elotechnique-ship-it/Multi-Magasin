@@ -1,5 +1,8 @@
 # Déploiement sur Railway (préproduction)
 
+> **Document caduc pour l'option B.** Il décrit l'option A (Railway + Supabase) et sera réécrit au lot B5 de `option-b-plan.md`. Ne pas l'exécuter tant que le plan B n'est pas validé : il crée un projet Supabase.
+
+
 **Portée autorisée :** environnement de **préproduction**, avec un projet Supabase **neuf**. La production réelle et le projet Supabase existant (Gate A) ne sont **pas** concernés.
 
 ## Ce que Railway héberge, et ce qu'il n'héberge pas

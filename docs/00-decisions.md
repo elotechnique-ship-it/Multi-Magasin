@@ -29,7 +29,7 @@
 | D9 | Caisse | En ligne uniquement pour le MVP (connexion fiable confirmée). Idempotence `client_uuid` prévue pour un hors-ligne ultérieur. |
 | D10 | Multiservices | Suivi comptable manuel des prestations ; aucune intégration d'opérateur financier. |
 | D11 | Notifications | Email + notifications push PWA. SMS/WhatsApp ultérieurement, en option. |
-| D12 | Hébergement | **Next.js sur Railway** (décision du maître d'ouvrage, 11 nov. 2026) + Supabase pour la base, l'authentification et le stockage. Région Supabase **à fixer avant la création du projet de production**, après mesure de latence depuis Dakar (la région ne se change pas facilement ensuite). |
+| D12 | Hébergement | **Next.js et PostgreSQL sur Railway** (décisions du maître d'ouvrage, 11 nov. 2026). Voir D21 : Supabase n'est plus utilisé. Région Supabase **à fixer avant la création du projet de production**, après mesure de latence depuis Dakar (la région ne se change pas facilement ensuite). |
 | D13 | Environnements | Développement (Supabase CLI local + projet dev), préproduction (projet séparé, données fictives), production (accès restreint). |
 | D14 | Palette | Turquoise foncé `#0F766E` pour boutons/liens, `#0EA5A4` pour accents ; texte navy sur orange. Voir `design-system.md`. |
 | D15 | Catégories | 12 catégories en base, 11 packs métier (Alimentation et Épicerie partagent un pack). Champs dynamiques pilotés par le SuperAdmin. |
@@ -37,6 +37,7 @@
 | D17 | Plans d'abonnement | Prix et limites **non définis** : livrés comme données fictives « à définir », modifiables par le SuperAdmin. |
 | D18 | Sauvegardes | Production sur un plan Supabase offrant la restauration à un instant donné (à vérifier à la création) + exports chiffrés complémentaires ; restauration testée en préproduction avant lancement. |
 | D19 | Volumétrie de dimensionnement | 20 magasins visés à 12 mois. Partitionnement différé ; index et schéma prévus pour grossir. |
+| D21 | **Option B : Railway seul, sans Supabase** | Décision du maître d'ouvrage, 11 nov. 2026. Authentification, sessions, double authentification, e-mails, sauvegardes et stockage sont remplacés par des composants maîtrisés. Plan : `option-b-plan.md`. Les livrables de l'option A restent dans la branche `option-a` et le zip existant. Remplace les décisions D18 (sauvegardes Supabase) et la partie Supabase de D13. |
 | D20 | Paiement Mobile Money | Accès marchand disponible. Intégration en Phase 7, après vérification du type d'accès (API/checkout/callback). Paiement manuel validé par SuperAdmin dès la Phase 2. |
 
 ## 3. Portes de contrôle ouvertes
@@ -46,7 +47,8 @@
 | **Gate A** | **Audit du projet existant** (code, schéma, RLS, migrations, comptes, buckets, variables d'environnement). Le maître d'ouvrage a indiqué qu'un projet existe, mais aucun export n'a été fourni. | **Ouverte** : l'intégration à l'existant est impossible tant qu'elle n'est pas close. |
 | **Gate B** | Autorisation explicite de démarrer la Phase 1. | **Close** : « GO Phase 1 » reçu. |
 | **Gate D** | Validation de la Phase 1 : exécution réelle des migrations, tests pgTAP, build et E2E (voir `phase1-report.md`). | **Ouverte** : la Phase 2 ne démarre pas avant. |
-| **Gate E** | Déploiement Railway. | **Autorisé pour la PRÉPRODUCTION uniquement**, avec un projet Supabase NEUF (interprétation de la demande du 11 nov. 2026 : « déployer directement avec Railway »). La production réelle et le projet existant restent **non autorisés**. À corriger si cette interprétation est inexacte. |
+| **Gate F** | Validation du plan de l'option B (`option-b-plan.md`) : décisions DB1 à DB9. | **Ouverte** : aucun code n'est écrit ou modifié avant cet accord. |
+| **Gate E** | Déploiement Railway. | **Autorisé pour la PRÉPRODUCTION uniquement**, avec une base NEUVE (la procédure `deployment-railway.md`, écrite pour l'option A, est à réécrire en lot B5) (interprétation de la demande du 11 nov. 2026 : « déployer directement avec Railway »). La production réelle et le projet existant restent **non autorisés**. À corriger si cette interprétation est inexacte. |
 | **Gate C** | Région Supabase de production et fournisseur d'email. | Ouverte (non bloquante pour la Phase 1) |
 
 **Conséquence sur la Phase 1.** Elle peut démarrer dans un **dépôt neuf et un projet Supabase de développement neuf**, strictement isolés de l'existant. Rien n'est branché sur le projet existant avant la clôture de la Gate A, et toute intégration se fera par migrations additives après audit.
