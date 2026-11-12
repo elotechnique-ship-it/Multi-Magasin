@@ -1,0 +1,18 @@
+# Base locale JETABLE : aucune donnée réelle. Ne jamais utiliser ces identifiants ailleurs.
+services:
+  db:
+    build: ./db
+    environment:
+      POSTGRES_PASSWORD: local-superuser-only
+      POSTGRES_DB: commerce_dev
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d commerce_dev"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+volumes:
+  dbdata:

@@ -98,3 +98,54 @@ Résultats du maître d'ouvrage, obtenus sur une **ancienne version** du code (9
 | Commandes lancées depuis `...\lib` | `node scripts/...` exige la racine du projet ; `npm run doctor` avertit |
 
 Avertissements Node 26 (`module.register()` déprécié, type de module non précisé) : sans conséquence pour l'instant. Dette technique : migrer vers `module.registerHooks()`.
+
+## 8. Résultats observés par le maître d'ouvrage (12 nov. 2026, Windows, Docker Desktop, Node 26, PostgreSQL 16)
+
+| Contrôle | Résultat observé | Statut |
+|---|---|---|
+| `npm install` | 422 paquets installés (15 vulnérabilités signalées, dont 2 critiques : **à analyser**, voir ci-dessous) | exécuté |
+| `npm run check:static` | 6 contrôles OK, **73/73 tests** | **exécuté chez vous** |
+| Image Docker PostgreSQL 16 + pgTAP | construite ; le paquet `postgresql-16-pgtap` existe | **exécuté** |
+| Amorçage des 4 rôles (`roles.sql`) | réussi sur une vraie base | **exécuté** |
+| **Application des 10 migrations** | **réussie** sur PostgreSQL 16 (première exécution réelle du projet) | **exécuté** |
+| `npm run test:integration` | **9/9 tests réussis** : isolation entre magasins, permissions par rôle, identité retrouvée par la base, session expirée ou jeton inconnu sans données, **jeton qui ne fuit pas d'une transaction à l'autre** (pool d'une seule connexion), lecture seule, schéma `auth` refusé à `app_runtime`, invitation valide une fois | **exécuté** |
+| `npm run typecheck` | **0 erreur avec les vrais types** (React, Next, `pg`) : lève mon incertitude sur la façade `TxClient` | **exécuté** |
+| `npm run build` | résultat non encore reçu | en attente |
+| `npm run db:test` (100 assertions pgTAP) | **non reçu** : la commande a été interrompue (Ctrl+C) ; **toujours à exécuter** | en attente |
+
+## 9. Défaut trouvé grâce à ces résultats
+Le test d'intégration laissait 2 magasins fictifs dans la base `commerce_test`, **partagée** avec le test pgTAP, dont un test attend exactement 2 magasins visibles par l'administrateur de plateforme : il aurait échoué à tort. **Corrigé** : `commerce_test` (pgTAP) et `commerce_integration` (Vitest) sont désormais deux bases distinctes ; commande `reset-tests` (supprime uniquement ces deux bases jetables, sur le conteneur local).
+
+## 10. Vulnérabilités signalées par `npm install`
+15 (10 modérées, 3 élevées, 2 critiques) : origine **non déterminée** (probablement des outils de développement, mais non vérifié). À analyser avec `npm audit --omit=dev` avant tout déploiement. Ne pas utiliser `npm audit fix --force`.
+
+## 11. Résultat de `db:test` (12 nov. 2026, premier passage réel des tests pgTAP)
+
+| Fichier | Résultat |
+|---|---|
+| `001_security_baseline` | **22/22** |
+| `002_tenant_isolation` | 67/68 : **un échec**, « #36 SuperAdmin AVEC 2FA : voit tous les magasins » |
+| `003_identity_rpc` | **10/10** |
+
+**Analyse.** 99 assertions sur 100 passent, dont toutes les assertions d'isolation entre magasins, de droits sur le schéma `auth`, de sessions expirées ou falsifiées et d'invitations. L'échec porte sur un **comptage global** (« exactement 2 magasins ») alors que la base `commerce_test` contenait aussi les 2 magasins fictifs laissés par le test d'intégration lancé juste avant (base partagée, défaut décrit en §9). Hypothèse de cause : pollution de test, pas défaut de sécurité. **À confirmer** : le même test doit passer après (a) séparation des bases (`reset-tests`) et (b) l'assertion désormais restreinte aux deux magasins du test. Si l'échec persistait après ces deux corrections, il faudrait le traiter comme un défaut réel de la politique d'accès des administrateurs.
+
+L'assertion a été rendue indépendante de l'état de la base : elle vérifie que l'administrateur voit **les deux magasins du test** (`id in (...)`), quel que soit le reste.
+
+## 12. PORTE 1 FRANCHIE (12 nov. 2026) : résultats réels, Windows, Docker Desktop, Node 26, PostgreSQL 16
+
+| Contrôle | Résultat |
+|---|---|
+| `npm run check:static` | 6 contrôles OK, 73/73 tests unitaires (86/86 après ajout des garde-fous distants) |
+| Rôles + **10 migrations** sur PostgreSQL 16 | **réussi** (base vierge) |
+| **pgTAP : `db:test`** | **OK : 100 assertions** (001 : 22/22, 002 : 68/68, 003 : 10/10) |
+| Tests d'intégration (`test:integration`) | **9/9** |
+| `npm run typecheck` | **0 erreur** (vrais types) |
+| **`npm run build`** | **réussi** : compilation, lint, types, 13 pages, middleware 34 Ko |
+
+**Confirmation de l'hypothèse du §11.** L'échec #36 observé au premier passage venait bien de la pollution de la base de test : après séparation des bases et restriction de l'assertion aux magasins du test, les 68 assertions du fichier 002 passent. **Ce n'était pas un défaut de sécurité.**
+
+**Ce que cela prouve** (sur une base locale, avec des données fictives) : isolation entre magasins ; l'identité est retrouvée par la base dans la table des sessions ; sans session valide, avec un jeton falsifié ou expiré, aucune donnée n'est visible ; `app_runtime` et `app_public` n'ont aucun accès au schéma `auth` ; la double authentification est exigée pour les droits de plateforme ; les journaux sont en ajout seul ; une invitation ne réactive jamais un membre suspendu ; le jeton de session ne fuit pas d'une transaction à l'autre.
+
+**Ce que cela ne prouve PAS** : aucune connexion réelle n'existe encore (lot B3) ; tests E2E Playwright, CI GitHub, préparation d'une base Railway (`remote.mjs`) et audit des dépendances **non exécutés** ; 15 vulnérabilités `npm` non analysées ; sauvegardes non configurées.
+
+Avertissements du build : 6 avertissements ESLint sur des paramètres volontairement inutilisés (`_prev`, `_formData`) : règle ajustée pour ignorer le préfixe `_`.

@@ -1,41 +1,23 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { SESSION_COOKIE_CANDIDATES } from "@/lib/auth/constants";
 
 const PROTECTED = ["/magasin", "/superadmin"];
 
-export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({ request });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll: () => request.cookies.getAll(),
-        setAll: (list) => {
-          list.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.next({ request });
-          list.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
-        },
-      },
-    },
-  );
-
-  // getUser() valide le JWT auprès du serveur Auth (contrairement à getSession()).
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+// Redirection RAPIDE uniquement (le middleware ne peut pas interroger la base). Ce n'est PAS un contrôle d'accès :
+// la présence d'un cookie ne prouve rien. La vérification réelle (session valide, droits, RLS) est faite par la base,
+// dans les layouts serveur (requireIdentity / requireStoreAccess / requirePlatformAdmin).
+export function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const isProtected = PROTECTED.some((p) => pathname === p || pathname.startsWith(p + "/"));
+  const hasCookie = SESSION_COOKIE_CANDIDATES.some((name) => request.cookies.get(name)?.value);
 
-  if (!user && isProtected) {
+  if (isProtected && !hasCookie) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth/connexion";
     url.search = `?next=${encodeURIComponent(pathname + search)}`;
     return NextResponse.redirect(url);
   }
-  return response;
+  return NextResponse.next();
 }
 
 export const config = {

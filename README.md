@@ -1,54 +1,52 @@
 # Commerce SaaS : plateforme de gestion commerciale multi-magasins
 
-**Direction retenue : option B (Railway seul, sans Supabase)**, voir `docs/option-b-plan.md` (plan en attente de validation).
-Le code actuel correspond à l'option A (Supabase) et sert de base de référence ; il sera adapté par lots B0 à B6.
+**Direction retenue : option B (Railway seul, PostgreSQL, sans Supabase).**
+Avancement : B0 terminé ; **B1 (base) et B2 (couche d'accès aux données) livrés, non validés** ; aucune connexion possible avant B3. **Ne pas déployer en production dans cet état.**
+
+| Document | Contenu |
+|---|---|
+| `docs/option-b-plan.md` | Plan des lots B0 à B6 |
+| `docs/b0-decision-note.md` | Décisions techniques (Better Auth, identité vérifiée par la base, rôles) |
+| `docs/b1-report.md` | Lot B1 (base de données) : livré, vérifié, non vérifié |
+| `docs/b2-report.md` | Lot B2 (couche d'accès) : livré, vérifié, non vérifié, procédure de validation |
+| `docs/00-decisions.md` | Journal des décisions et portes de contrôle |
 
 ## Prérequis
+- **Node.js ≥ 22.18** (vérifier : `node -v`).
+- **Docker Desktop**, démarré (icône verte). Le client `psql` n'est **pas** nécessaire : il est utilisé dans le conteneur si absent.
 
-- Node.js ≥ 22 (≥ 20.9 minimum pour Next.js)
-- Docker (pour Supabase en local)
-- Supabase CLI (installée par `npm install` via la dépendance de développement, ou séparément)
+## Valider le lot B1 (porte 1), sous Windows PowerShell
 
-## Mise en route (développement local uniquement)
+**Important : toutes les commandes `npm` se lancent DANS le dossier du projet** (celui qui contient `package.json`), jamais depuis `C:\Windows\system32`.
 
-```bash
-npm install                      # génère package-lock.json : à COMMITER (fige les versions)
-cp .env.example .env.local       # puis renseigner avec les valeurs affichées par `supabase start`
-npx supabase start               # base locale éphémère : aucune donnée réelle
-npm run dev
+```powershell
+# 1. Décompresser commerce-saas-option-b-B1.zip, par exemple dans C:\Projets, puis :
+cd C:\Projets\commerce-saas
+dir package.json                  # doit afficher le fichier ; sinon vous n'êtes pas au bon endroit
+node -v                           # v22.18 ou plus
+
+# 2. Dépendances et contrôles sans base
+npm install
+npm run doctor                    # vérifie dossier, version du code, Node, Docker : corrigez tout ✗ avant de continuer
+npm run check:static              # attendu : 6 lignes OK et « 73/73 tests réussis »
+
+# 3. Base locale jetable (Docker Desktop doit être démarré) puis tests de sécurité de la base
+node scripts/db/local.mjs up
+npm run db:test                   # attendu : « db:test : OK — 100 assertions »
+npm run test:integration          # attendu : 9 tests réussis (couche d'accès, base réelle)
+npm run typecheck                 # types réels
+npm run build                     # premier vrai build
 ```
 
-> Ne jamais exécuter `supabase db reset`, `supabase link` ou `supabase db push` contre un projet distant sans autorisation écrite. Un `reset` est toléré **uniquement** sur la base locale de développement ou de CI.
-
-## Procédure de validation de la Phase 1
-
-À exécuter dans cet ordre ; chaque commande doit réussir. Joindre la sortie complète au rapport.
-
-| # | Commande | Ce qu'elle prouve |
-|---|---|---|
-| 1 | `npm run check:static` | Règles SQL (RLS, destructif, search_path, anon), cohérence permissions TS/SQL, absence de secrets, jetons de design, 35 tests purs |
-| 2 | `npx supabase start` | Les 8 migrations s'appliquent sur une base vierge |
-| 3 | `npx supabase db lint --fail-on error` | Aucune erreur de lint SQL |
-| 4 | `npx supabase test db` | Tests pgTAP : socle de sécurité (001) et isolation inter-magasins, rôles, MFA, invitations, journaux (002) |
-| 5 | `npm run typecheck` | Types stricts avec les vraies dépendances |
-| 6 | `npm run lint` | ESLint (dont interdiction d'importer les modules serveur) |
-| 7 | `npm test` | Tests unitaires Vitest |
-| 8 | `npm run build` | Compilation de production |
-| 9 | `npm run test:e2e` | Redirections d'authentification, en-têtes de sécurité, sonde de santé |
-
-## Déploiement
-
-Railway (application) + Supabase (base, auth, stockage) : voir `docs/deployment-railway.md`. Préproduction uniquement tant que la Phase 1 n'est pas validée.
-
-## Structure
-
-Voir `docs/architecture.md`. Points clés :
-
-- `supabase/migrations` : schéma versionné, **additif uniquement**.
-- `supabase/tests` : tests pgTAP (RLS et sécurité).
-- `lib/supabase/admin.ts` : seul module autorisé à utiliser la clé service role (`server-only`).
-- `scripts/` : contrôles statiques exécutés aussi en CI ; `scripts/admin/` : procédures manuelles d'administration.
+Envoyer la sortie **complète** de `db:test` (réussie ou non). Ces commandes n'agissent que sur la base locale `127.0.0.1:5433`.
 
 ## Règles de protection
+- Aucune donnée supprimée ; **aucune réinitialisation d'une base distante** (l'exécuteur de migrations n'offre ni retour arrière ni reset ; `db:local` n'agit que sur la base locale jetable).
+- Aucune politique de sécurité désactivée ; aucune modification de la production sans autorisation écrite.
+- Aucun secret dans le dépôt. Le rôle `app_migrator` n'est **jamais** configuré sur le service applicatif.
 
-Voir `docs/00-decisions.md` §1.
+## Structure
+- `db/bootstrap/roles.sql` : création des rôles (mots de passe fournis à l'exécution).
+- `db/migrations/` : schéma versionné, **avant seulement**. `db/tests/` : tests pgTAP.
+- `scripts/db/` : exécuteur de migrations, lanceur pgTAP, aide locale. `scripts/` : contrôles statiques.
+- `legacy` : l'option A (Supabase) est conservée dans la branche `option-a` (étiquette `option-a-final`).

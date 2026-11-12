@@ -151,7 +151,9 @@ reset role;
 update auth."user" set "twoFactorEnabled" = true where id = 'd0000000-0000-0000-0000-0000000000d1';
 set local role app_runtime;
 select set_config('app.session_token', 'tok-admin', true);
-select is((select count(*)::int from public.stores), 2, 'SuperAdmin AVEC 2FA : voit tous les magasins');
+-- Comptage restreint aux deux magasins de CE test : indépendant des données laissées par d'autres tests dans la base.
+select is((select count(*)::int from public.stores where id in ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222')),
+          2, 'SuperAdmin AVEC 2FA : voit les magasins dont il n''est pas membre');
 reset role;
 
 -- ═════════════ Identité vérifiée par la base : sans session valide, aucun droit ═════════════

@@ -9,76 +9,79 @@
 | **Base PostgreSQL** (rôles, 9 migrations, référentiels) | **Déployable maintenant** (procédure A ci-dessous) |
 | **Application Next.js** | **Pas encore** : le code utilise encore Supabase (lot B2) et n'a pas d'authentification (lot B3). Procédure B ci-dessous, pour plus tard |
 
-## Procédure A : base PostgreSQL de préproduction
+## Procédure A : base PostgreSQL de préproduction (une commande)
 
-**Avant de commencer (recommandé) :** avoir réussi `npm run db:test` en local (porte 1). Sinon, vous faites la première exécution des migrations sur un serveur distant. C'est acceptable en préproduction, mais une erreur se corrige plus vite en local.
+**GitHub et la base sont deux choses différentes.** Pousser le projet sur GitHub (GitHub Desktop) ne crée rien dans la base Railway : le dépôt sert à l'application, la base se prépare avec la commande ci-dessous. Vérifications GitHub : le dépôt est **privé**, `package.json` est visible **à la racine** du dépôt, et aucun fichier `.env` n'y figure. Côté Railway, le service **Multi-Magasin** doit rester **en pause** (une publication sur GitHub déclenche sinon une construction).
 
-Prérequis sur votre poste : Node ≥ 22.18, `npm install` fait, client `psql`.
+**Prérequis :** Docker Desktop démarré, `npm install` fait, base Railway **neuve et séparée** (celle de BinkMedicab et BinkResto n'est PAS concernée : la commande refuse toute base qui contient déjà des tables).
 
-### A1. Créer la base sur Railway
-1. Nouveau projet Railway, puis *Add* > *Database* > **PostgreSQL**.
-2. Vérifier la version : l'accès au serveur étant décrit ci-dessous, lancer `select version();`. **PostgreSQL 15 ou plus est obligatoire** (contrainte `UNIQUE NULLS NOT DISTINCT`). Si la version est plus ancienne, arrêtez-vous et dites-le-moi.
-3. La base est **privée par défaut** : aucune action pour l'instant.
+### A1. Ouvrir temporairement l'accès externe
+Service Postgres **neuf** > *Settings* > *Networking* > *Public Access*. Dans l'onglet *Variables* du même service, copiez la valeur de `DATABASE_PUBLIC_URL`.
 
-### A2. Ouvrir temporairement l'accès externe
-Service PostgreSQL > *Settings* > *Networking* > *Public Access*. Cela crée un proxy TCP et remplit la variable `DATABASE_PUBLIC_URL`. Le trafic sortant est facturé : ne laissez pas l'accès ouvert plus longtemps que nécessaire.
-
-Dans votre terminal (ne collez jamais cette URL dans une conversation) :
-```bash
-export ADMIN_DATABASE_URL="<valeur de DATABASE_PUBLIC_URL, avec ?sslmode=require>"
-psql "$ADMIN_DATABASE_URL" -c "select version();"
-psql "$ADMIN_DATABASE_URL" -c "select rolsuper from pg_roles where rolname = current_user;"   # doit afficher t
+### A2. Vérifier la cible (lecture seule)
+Dans PowerShell, dans le dossier du projet :
+```powershell
+$env:ADMIN_DATABASE_URL = Read-Host "Collez DATABASE_PUBLIC_URL"
+node scripts/db/remote.mjs check
 ```
+Résultat attendu : `✓ base vierge et conforme`, avec PostgreSQL 15 ou plus, `superutilisateur : oui`, `tables existantes : 0`. Sinon la base est **refusée** et rien n'est modifié.
 
-### A3. Créer les quatre rôles applicatifs
-Générer quatre mots de passe forts, **à ranger dans un gestionnaire de mots de passe** (sans caractères `/ + = @ :` pour éviter l'encodage d'URL) :
-```bash
-openssl rand -base64 32 | tr -d '/+=' | cut -c1-32     # à répéter 4 fois
+### A3. Préparer la base
+```powershell
+node scripts/db/remote.mjs setup --yes
 ```
-Puis, une seule fois :
-```bash
-psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -v migrator_password='…' -v auth_password='…' -v runtime_password='…' -v public_password='…' \
-  -f db/bootstrap/roles.sql
+La commande crée les 4 rôles, applique les 10 migrations, puis vérifie que `app_runtime` voit 0 magasin sans session et ne peut pas lire le schéma `auth`. **Les 4 mots de passe sont affichés une seule fois** : copiez-les aussitôt dans un gestionnaire de mots de passe (ils ne sont écrits nulle part).
+
+### A4. Refermer l'accès externe
+Retirez le *Public Access* du service Postgres. La base redevient privée.
+
+### Limites
+- La connexion des migrations est **chiffrée mais sans vérification du certificat** (le proxy Railway est auto-signé) : acceptable pour de la préproduction fictive, **interdit pour la production** (le script le refuse hors `--target staging`).
+- Les tests pgTAP ne s'exécutent pas sur Railway (le lanceur refuse toute base distante).
+- Aucune sauvegarde n'est configurée : pas de données réelles avant le lot B5.
+- Si le script échoue après la création des rôles, **ne relancez pas `setup`** (il refuserait : les rôles existent) : envoyez-moi la sortie complète.
+
+## Procédure B : l'application, depuis GitHub (test d'infrastructure)
+
+**Ce que cette étape donne aujourd'hui :** un site qui se construit, démarre et répond, **sans connexion possible** (l'authentification est le lot B3). Elle valide la chaîne GitHub, Railway, sonde de santé et variables ; elle n'apporte pas de fonctionnalité. Elle consomme du crédit Railway en continu.
+
+### B1. Préparer GitHub (GitHub Desktop)
+1. Le dépôt est **privé**. Sur github.com, `package.json` est visible **à la racine** (sinon Railway ne trouve pas le projet).
+2. Dans GitHub Desktop, la branche courante est `option-b`. Les fichiers modifiés comprennent `package-lock.json` (généré par `npm install` : il **fige** les versions, il doit être commité). `tsconfig.tsbuildinfo` ne doit pas apparaître (ignoré).
+3. *Commit to option-b* (message : « Fige les dépendances »), puis *Push origin*.
+4. Vérifier sur github.com, branche `option-b` : `package-lock.json`, `railway.json` et `.node-version` sont présents.
+
+### B2. Créer le service sur Railway
+Idéalement dans un **projet Railway séparé** de BinkMedicab et BinkResto. Si vous restez dans le même projet : le nouveau service ne doit référencer **aucune** variable des autres services, et vous ne cliquez jamais sur le raccourci « connecter une base de données » proposé en violet.
+1. *New* > *GitHub Repo* > choisir le dépôt.
+2. Service > *Settings* > *Source* : **branche `option-b`**, *Root Directory* vide.
+3. Service > *Variables*, **avant le premier build** :
+
+| Variable | Valeur | Remarque |
+|---|---|---|
+| `NEXT_PUBLIC_SITE_URL` | `https://exemple.up.railway.app` (provisoire) | **Exigée** par le code ; intégrée au build, donc à corriger après l'étape B3 puis redéployer |
+
+Rien d'autre n'est nécessaire à ce stade. **Ne pas** ajouter de variable Supabase (obsolètes), ni `MIGRATION_DATABASE_URL`, ni la variable `DATABASE_URL` fournie par le service PostgreSQL de Railway (c'est le **superutilisateur** : l'application refuse de l'utiliser et s'arrêtera avec un message explicite).
+
+### B3. Domaine, puis redéploiement
+1. Service > *Settings* > *Networking* > *Generate Domain*.
+2. Remplacer `NEXT_PUBLIC_SITE_URL` par `https://<domaine généré>`, puis redéployer (la valeur est figée au moment du build).
+
+### B4. Vérifier (PowerShell)
+```powershell
+Invoke-RestMethod https://<domaine>/api/health          # doit afficher : status ok
+curl.exe -I https://<domaine>/                          # doit montrer 200 et les en-têtes de sécurité
+curl.exe -I https://<domaine>/magasin                   # doit rediriger vers /auth/connexion
 ```
+Dans le navigateur : la page d'accueil s'affiche ; `/auth/connexion` montre le formulaire ; toute tentative de connexion répond que **l'authentification n'est pas encore disponible** (comportement attendu avant B3).
 
-### A4. Appliquer les migrations
-Remplacer hôte et port par ceux de `ADMIN_DATABASE_URL` ; la base s'appelle par défaut `railway`.
-```bash
-export MIGRATION_DATABASE_URL="postgres://app_migrator:<mot-de-passe-migrateur>@<hôte-proxy>:<port>/railway?sslmode=require"
-node scripts/db/migrate.mjs --target staging --dry-run    # affiche le plan, ne modifie rien
-node scripts/db/migrate.mjs --target staging              # applique les 9 migrations
-```
-Le script refuse tout rôle autre que `app_migrator`, refuse un hôte local pour `staging`, n'a aucune option de retour arrière ni de réinitialisation, et annule une migration entière si elle échoue.
+### B5. Relier la base (plus tard, utile seulement après B3)
+Après `node scripts/db/remote.mjs setup --yes`, ajouter la variable :
+`DATABASE_URL=postgres://app_runtime:<mot-de-passe>@<hôte privé du service Postgres>:5432/<base>`
+L'hôte privé et le nom de base se copient depuis l'onglet *Variables* du service PostgreSQL (valeurs `RAILWAY_PRIVATE_DOMAIN` et `PGDATABASE`). **Le mot de passe est celui du rôle `app_runtime`, affiché une seule fois par `setup`.** N'utilisez jamais l'adresse publique pour l'application.
 
-### A5. Vérifier
-```bash
-# en tant que rôle applicatif : sans session valide, aucune donnée visible ; schéma auth inaccessible
-psql "postgres://app_runtime:<mdp-runtime>@<hôte-proxy>:<port>/railway?sslmode=require" \
-  -c "select count(*) from public.stores;" \
-  -c "select * from auth.\"user\";"
-```
-Attendu : `0` pour la première requête ; **`permission denied for schema auth`** pour la seconde. Envoyez-moi ces deux sorties : elles remplacent, pour l'essentiel, les tests pgTAP que Railway ne peut pas exécuter.
-
-### A6. Refermer l'accès externe
-Service PostgreSQL > *Networking* > supprimer le *Public Access*. La base redevient privée.
-
-### Limites de la procédure A
-- Les tests pgTAP **ne s'exécutent pas** sur Railway (le lanceur refuse toute base distante). Ils restent un contrôle local et de CI.
-- **Aucune sauvegarde n'est configurée** : pas de données réelles avant le lot B5.
-- Une migration appliquée ne se modifie jamais : un correctif est une **nouvelle** migration.
-
-## Procédure B : application (à faire après les lots B2 et B3)
-
-À compléter lors du lot B5. Points déjà établis :
-
-1. Service applicatif créé depuis un dépôt GitHub **privé** (le fichier `railway.json` configure démarrage, sonde `/api/health` et redémarrage).
-2. **Piège à éviter :** la variable `DATABASE_URL` fournie par Railway pour PostgreSQL contient les identifiants du **superutilisateur**. **Ne jamais la référencer depuis l'application.** Le code de l'application **refuse de démarrer** si `DATABASE_URL` n'utilise pas le rôle `app_runtime` (garde-fou du lot B2). Définir à la place, dans le service applicatif, une variable `DATABASE_URL` dont l'URL utilise le rôle voulu et l'adresse privée du service (`<service>.railway.internal:5432`) :
-   - `DATABASE_URL` : rôle `app_runtime`
-   - `AUTH_DATABASE_URL` : rôle `app_auth`
-3. `MIGRATION_DATABASE_URL` ne doit **jamais** être définie sur le service applicatif.
-4. Variables Supabase (`NEXT_PUBLIC_SUPABASE_*`, `SUPABASE_SERVICE_ROLE_KEY`) : **supprimées**, à retirer du service Railway s'il en a encore. Seules `NEXT_PUBLIC_SITE_URL` et `DATABASE_URL` sont lues par le code actuel (B3 ajoutera `AUTH_DATABASE_URL` et `BETTER_AUTH_SECRET`).
-5. Les migrations s'appliquent depuis un poste d'opérateur ou la CI, jamais au démarrage de l'application.
+### En cas d'échec de construction
+Service > *Deployments* > le déploiement en échec > *Build Logs* : copiez les 40 dernières lignes à partir de la première occurrence de « Error », après avoir vérifié qu'aucun secret n'y figure.
 
 ## Retour arrière
 - **Application** : redéployer la version précédente depuis Railway.
