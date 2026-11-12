@@ -1,5 +1,8 @@
 # Modèle de sécurité
 
+> **Partiellement caduc (option B).** Ce document décrit le modèle Supabase (`auth.uid()`, `auth.users`, rôles `anon`/`authenticated`, JWT). Pour l'option B voir `b0-decision-note.md` et `option-b-plan.md` ; il sera réécrit au lot B6. Les principes (isolation par magasin, refus par défaut, journaux en ajout seul) restent inchangés.
+
+
 ## 1. Surfaces et acteurs
 
 | Acteur | Identité | Accès |

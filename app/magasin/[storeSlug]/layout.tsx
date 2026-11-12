@@ -11,7 +11,7 @@ export default async function StoreLayout({
   params: Promise<{ storeSlug: string }>;
 }) {
   const { storeSlug } = await params;
-  const { user, store, permissions, modules } = await requireStoreAccess(storeSlug);
+  const { identity, store, permissions, modules } = await requireStoreAccess(storeSlug);
 
   const banner =
     store.access === "blocked" || store.status === "suspended"
@@ -28,7 +28,7 @@ export default async function StoreLayout({
       area="Espace commerçant"
       basePath={`/magasin/${store.slug}`}
       menu={buildMenu(permissions, modules)}
-      userEmail={user.email ?? ""}
+      userEmail={identity.email}
       banner={banner}
     >
       {children}

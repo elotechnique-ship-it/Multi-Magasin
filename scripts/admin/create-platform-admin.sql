@@ -1,6 +1,6 @@
 -- PROCÉDURE D'ADMINISTRATION (hors application) : promouvoir un compte existant en administrateur de plateforme.
--- À exécuter manuellement, par un opérateur autorisé, via psql ou le SQL Editor Supabase.
--- 1) Le compte doit déjà exister dans auth.users (créé par invitation).
+-- À exécuter manuellement, par un opérateur autorisé, via psql, avec le compte propriétaire de la base.
+-- 1) Le compte doit déjà exister dans auth."user" (créé par le flux d'invitation, lot B3).
 -- 2) Remplacer l'e-mail ci-dessous. Aucun secret n'est stocké dans ce fichier.
 -- 3) L'administrateur devra enrôler la MFA (TOTP) à sa première connexion : sans AAL2, aucun droit plateforme.
 --
@@ -9,7 +9,7 @@
 
 insert into public.platform_admins (user_id, level)
 select u.id, :'admin_level'
-from auth.users u
+from auth."user" u
 where lower(u.email) = lower(:'admin_email')
 on conflict (user_id) do nothing;
 

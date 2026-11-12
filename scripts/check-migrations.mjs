@@ -7,10 +7,12 @@
 //  R2 RLS activée + forcée par table     R6 fonction publique => GRANT EXECUTE explicite
 //  R3 aucune opération destructive       R7 aucun GRANT à anon (sauf marqueur approuvé)
 //  R4 jamais de désactivation de RLS     R8 syntaxe : $$ et parenthèses équilibrés
+//  R9 schéma auth : droits réservés à app_auth   R10 aucune création de rôle ni mot de passe dans les migrations
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const DIR = new URL("../supabase/migrations/", import.meta.url).pathname;
+const DIR = fileURLToPath(new URL("../db/migrations/", import.meta.url));
 const files = readdirSync(DIR).filter((f) => f.endsWith(".sql")).sort();
 const errors = [];
 const fail = (file, rule, msg) => errors.push(`[${rule}] ${file} : ${msg}`);
@@ -31,11 +33,11 @@ if (new Set(stamps).size !== stamps.length) errors.push("[R1] horodatages de mig
 // R2 : toute table créée doit avoir la RLS activée ET forcée (explicitement, ou via la boucle de la migration RLS)
 const tables = new Set();
 for (const f of all) {
-  for (const m of f.sql.matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?([a-z_][a-z0-9_]*)/gi)) tables.add(m[1]);
+  for (const m of f.sql.matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?(?:[a-z_][a-z0-9_]*\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?/gi)) tables.add(m[1]);
 }
 for (const t of tables) {
   const explicit = (kind) =>
-    all.some((f) => new RegExp(`alter\\s+table\\s+(?:public\\.)?${t}\\s+${kind}\\s+row\\s+level\\s+security`, "i").test(f.sql));
+    all.some((f) => new RegExp(`alter\\s+table\\s+(?:[a-z_][a-z0-9_]*\\.)?"?${t}"?\\s+${kind}\\s+row\\s+level\\s+security`, "i").test(f.sql));
   const viaLoop = all.some(
     (f) =>
       /foreach\s+\w+\s+in\s+array/i.test(f.sql) &&
@@ -43,7 +45,7 @@ for (const t of tables) {
       /force\s+row\s+level\s+security/i.test(f.sql) &&
       new RegExp(`'${t}'`).test(f.sql),
   );
-  if (!(explicit("enable") && explicit("force")) && !viaLoop) fail("(toutes)", "R2", `table public.${t} : RLS non activée et forcée`);
+  if (!(explicit("enable") && explicit("force")) && !viaLoop) fail("(toutes)", "R2", `table ${t} : RLS non activée et forcée`);
 }
 
 for (const f of all) {
@@ -70,12 +72,24 @@ for (const f of all) {
     if (!all.some((x) => g.test(x.sql))) fail(f.name, "R6", `public.${m[1]} : aucun GRANT EXECUTE explicite`);
   }
 
-  // R7 : aucun droit pour anon sans marqueur approuvé
-  const anonApproved = /--\s*approved-anon-grant:\s*\S+/.test(f.raw);
+  // R7 : aucun droit pour app_public ni PUBLIC sans marqueur approuvé
+  const publicApproved = /--\s*approved-public-grant:\s*\S+/.test(f.raw);
   for (const stmt of f.sql.split(";")) {
-    if (/^\s*grant\b[\s\S]*\bto\b[^;]*\banon\b/i.test(stmt) && !anonApproved) {
-      fail(f.name, "R7", "GRANT à anon sans marqueur « -- approved-anon-grant: <ticket> »");
+    if (/^\s*grant\b[\s\S]*\bto\b[^;]*\b(app_public|public)\b/i.test(stmt) && !publicApproved) {
+      fail(f.name, "R7", "GRANT à app_public ou PUBLIC sans marqueur « -- approved-public-grant: <réf> »");
     }
+  }
+
+  // R9 : tout droit sur le schéma auth est réservé à app_auth
+  for (const stmt of f.sql.split(";")) {
+    if (/^\s*grant\b/i.test(stmt) && /\bauth\b/.test(stmt) && /\bto\b[^;]*\b(app_runtime|app_public|public|app_migrator)\b/i.test(stmt)) {
+      fail(f.name, "R9", "droit sur le schéma auth accordé à un autre rôle qu'app_auth");
+    }
+  }
+
+  // R10 : les rôles et mots de passe ne vivent QUE dans db/bootstrap (jamais dans une migration)
+  if (/\b(create|alter|drop)\s+(role|user)\b/i.test(f.sql) || /\bpassword\s+'/i.test(f.sql)) {
+    fail(f.name, "R10", "création/modification de rôle ou mot de passe dans une migration (réservé à db/bootstrap/roles.sql)");
   }
 
   // R8 : syntaxe grossière
@@ -91,4 +105,4 @@ if (errors.length) {
   console.error(`check-migrations : ${errors.length} problème(s)\n` + errors.map((e) => " - " + e).join("\n"));
   process.exit(1);
 }
-console.log(`check-migrations : OK — ${all.length} migrations, ${tables.size} tables (RLS activée+forcée), règles R1-R8 respectées`);
+console.log(`check-migrations : OK — ${all.length} migrations, ${tables.size} tables (RLS activée+forcée), règles R1-R10 respectées`);

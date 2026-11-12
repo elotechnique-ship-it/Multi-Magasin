@@ -1,41 +1,31 @@
+import "server-only";
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth/session";
+import { requireIdentity } from "@/lib/auth/session";
+import { withSession } from "@/lib/db/with-session";
+import { getEnabledModules, getMyPermissions, getStoreBySlug, type StoreRow } from "@/lib/db/queries/stores";
 import { isValidSlug } from "@/lib/validation/slug";
 
-export interface StoreContext {
-  id: string;
-  slug: string;
-  name: string;
-  status: "pending_activation" | "active" | "suspended" | "archived";
-  access: "full" | "read_only" | "blocked";
-}
+export type StoreContext = StoreRow;
 
 /**
- * Contexte du magasin actif (issu de l'URL). Jamais de confiance dans l'URL seule :
- * la lecture du magasin passe par la RLS ; si l'utilisateur n'est pas membre, la ligne est invisible.
- * Aucune permission => 404 (on ne révèle pas l'existence d'un magasin à un non-membre).
+ * Contexte du magasin actif (issu de l'URL). Jamais de confiance dans l'URL seule : une seule transaction sous session,
+ * la RLS ne renvoie le magasin qu'à un membre. Aucune permission => 404 (pas d'indice d'existence pour un non-membre).
  */
 export async function requireStoreAccess(storeSlug: string) {
   if (!isValidSlug(storeSlug)) notFound();
-  const { supabase, user } = await requireUser(`/magasin/${storeSlug}`);
+  const { token, identity } = await requireIdentity(`/magasin/${storeSlug}`);
 
-  const { data: store } = await supabase
-    .from("stores")
-    .select("id, slug, name, status, access")
-    .eq("slug", storeSlug)
-    .maybeSingle();
-  if (!store) notFound();
+  const ctx = await withSession(
+    token,
+    async (tx) => {
+      const store = await getStoreBySlug(tx, storeSlug);
+      if (!store) return null;
+      const [permissions, modules] = await Promise.all([getMyPermissions(tx, store.id), getEnabledModules(tx, store.id)]);
+      return { store, permissions, modules };
+    },
+    { readOnly: true },
+  );
+  if (!ctx || ctx.permissions.length === 0) notFound();
 
-  const { data: perms } = await supabase.rpc("my_permissions", { p_store: (store as StoreContext).id });
-  const permissions = new Set<string>(Array.isArray(perms) ? (perms as string[]) : []);
-  if (permissions.size === 0) notFound();
-
-  const { data: mods } = await supabase
-    .from("store_modules")
-    .select("module_code")
-    .eq("store_id", (store as StoreContext).id)
-    .eq("is_enabled", true);
-  const modules = new Set<string>((mods ?? []).map((m: { module_code: string }) => m.module_code));
-
-  return { supabase, user, store: store as StoreContext, permissions, modules };
+  return { identity, store: ctx.store, permissions: new Set(ctx.permissions), modules: new Set(ctx.modules) };
 }

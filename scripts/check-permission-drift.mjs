@@ -3,8 +3,9 @@
 // et que toute permission utilisée dans une politique, une fonction ou un menu existe réellement.
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("../", import.meta.url).pathname;
+const root = fileURLToPath(new URL("../", import.meta.url));
 const errors = [];
 
 // 1. Catalogue TypeScript
@@ -14,7 +15,7 @@ if (!tsBlock) throw new Error("catalogue TypeScript introuvable");
 const tsSet = new Set([...tsBlock[1].matchAll(/"([a-z_]+\.[a-z_]+)"/g)].map((m) => m[1]));
 
 // 2. Table SQL (migration de référence)
-const migDir = join(root, "supabase/migrations");
+const migDir = join(root, "db/migrations");
 const migs = readdirSync(migDir).filter((f) => f.endsWith(".sql")).sort();
 const seedFile = migs.find((f) => f.includes("seed_reference"));
 if (!seedFile) throw new Error("migration de données de référence introuvable");

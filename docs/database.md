@@ -1,5 +1,8 @@
 # Base de données PostgreSQL
 
+> **Partiellement caduc (option B).** Ce document décrit le modèle Supabase (`auth.uid()`, `auth.users`, rôles `anon`/`authenticated`, JWT). Pour l'option B voir `b0-decision-note.md` et `option-b-plan.md` ; il sera réécrit au lot B6. Les principes (isolation par magasin, refus par défaut, journaux en ajout seul) restent inchangés.
+
+
 Le SQL ci-dessous est un **schéma de conception**. Les migrations exécutables seront livrées par phase, versionnées et testées. Aucune n'a été exécutée à ce jour.
 
 ## 1. Conventions

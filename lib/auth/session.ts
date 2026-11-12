@@ -1,39 +1,37 @@
+import "server-only";
 import { notFound, redirect } from "next/navigation";
-import type { SupabaseClient, User } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/server";
+import { withSession } from "@/lib/db/with-session";
+import { getIdentity, getPlatformAdmin, type Identity } from "@/lib/db/queries/identity";
+import { getCurrentSessionToken } from "@/lib/auth/current-session";
 
 export type PlatformLevel = "owner" | "support" | "finance";
 
-/** Utilisateur authentifié (JWT validé côté serveur Auth) ou redirection vers la connexion. */
-export async function requireUser(nextPath?: string): Promise<{ supabase: SupabaseClient; user: User }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+/** Jeton de session valide ou redirection vers la connexion. */
+export async function requireSessionToken(nextPath?: string): Promise<string> {
+  const token = await getCurrentSessionToken();
+  if (!token) {
     const q = nextPath ? `?next=${encodeURIComponent(nextPath)}` : "";
     redirect(`/auth/connexion${q}`);
   }
-  return { supabase, user };
+  return token;
+}
+
+/** Utilisateur authentifié : l'identité est retrouvée PAR LA BASE ; une session expirée ou falsifiée donne null => connexion. */
+export async function requireIdentity(nextPath?: string): Promise<{ token: string; identity: Identity }> {
+  const token = await requireSessionToken(nextPath);
+  const identity = await withSession(token, (tx) => getIdentity(tx), { readOnly: true });
+  if (!identity) redirect(nextPath ? `/auth/connexion?next=${encodeURIComponent(nextPath)}` : "/auth/connexion");
+  return { token, identity };
 }
 
 /**
- * Garde SuperAdmin. Réponse 404 si l'utilisateur n'est pas administrateur (on ne révèle pas l'existence de la zone).
- * MFA obligatoire : sans AAL2 → redirection vers l'enrôlement/vérification TOTP.
- * NB : la base applique la même règle (private.platform_level exige aal2) — ce garde n'est qu'ergonomique.
+ * Garde SuperAdmin. 404 si l'utilisateur n'est pas administrateur (on ne révèle pas l'existence de la zone).
+ * 2FA obligatoire : sans aal2 → page d'activation. La base applique la même règle (private.platform_level exige aal2).
  */
 export async function requirePlatformAdmin(nextPath = "/superadmin/dashboard") {
-  const { supabase, user } = await requireUser(nextPath);
-
-  const { data: admin } = await supabase
-    .from("platform_admins")
-    .select("level, disabled_at")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const { token, identity } = await requireIdentity(nextPath);
+  const admin = await withSession(token, (tx) => getPlatformAdmin(tx), { readOnly: true });
   if (!admin || admin.disabled_at) notFound();
-
-  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-  if (aal?.currentLevel !== "aal2") redirect(`/auth/mfa?next=${encodeURIComponent(nextPath)}`);
-
-  return { supabase, user, level: admin.level as PlatformLevel };
+  if (identity.aal !== "aal2") redirect(`/auth/mfa?next=${encodeURIComponent(nextPath)}`);
+  return { token, identity, level: admin.level as PlatformLevel };
 }

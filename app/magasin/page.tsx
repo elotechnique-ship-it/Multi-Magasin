@@ -1,31 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { requireUser } from "@/lib/auth/session";
+import { requireIdentity } from "@/lib/auth/session";
+import { withSession } from "@/lib/db/with-session";
+import { listMyStores } from "@/lib/db/queries/stores";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/states";
 import { Badge } from "@/components/ui/badge";
 
 export const metadata: Metadata = { title: "Mes magasins" };
 
-interface MembershipRow {
-  stores: { slug: string; name: string; status: string } | { slug: string; name: string; status: string }[] | null;
-}
-
 export default async function StoreSelectorPage() {
-  const { supabase, user } = await requireUser("/magasin");
-
-  // On part des adhésions de l'utilisateur (et non de toutes les lignes visibles de `stores`),
-  // car un administrateur plateforme (AAL2) peut voir davantage de magasins qu'il n'en gère.
-  const { data } = await supabase
-    .from("store_members")
-    .select("stores(slug, name, status)")
-    .eq("user_id", user.id)
-    .eq("status", "active");
-
-  const stores = ((data ?? []) as MembershipRow[])
-    .map((r) => (Array.isArray(r.stores) ? r.stores[0] : r.stores))
-    .filter((s): s is { slug: string; name: string; status: string } => Boolean(s));
+  const { token } = await requireIdentity("/magasin");
+  // Partir des adhésions de l'utilisateur : un administrateur plateforme (aal2) peut voir davantage de magasins qu'il n'en gère.
+  const stores = await withSession(token, (tx) => listMyStores(tx), { readOnly: true });
 
   if (stores.length === 1 && stores[0]) redirect(`/magasin/${stores[0].slug}`);
 

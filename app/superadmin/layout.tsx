@@ -15,9 +15,9 @@ const MENU: MenuEntry[] = [
 ];
 
 export default async function SuperAdminLayout({ children }: { children: React.ReactNode }) {
-  const { user } = await requirePlatformAdmin();
+  const { identity } = await requirePlatformAdmin();
   return (
-    <AppShell title="Plateforme" area="SuperAdmin" basePath="/superadmin" menu={MENU} userEmail={user.email ?? ""}>
+    <AppShell title="Plateforme" area="SuperAdmin" basePath="/superadmin" menu={MENU} userEmail={identity.email}>
       {children}
     </AppShell>
   );

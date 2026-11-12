@@ -30,7 +30,7 @@ for (const [fg, bg, label] of REQUIRED_AA_PAIRS) {
 }
 
 // 3. Slugs : TS <-> contrainte SQL
-const stores = readFileSync(join(root, "supabase/migrations", readdirSync(join(root, "supabase/migrations")).find((f) => f.includes("stores"))), "utf8");
+const stores = readFileSync(join(root, "db/migrations", readdirSync(join(root, "db/migrations")).find((f) => f.includes("stores"))), "utf8");
 const sqlRegex = /slug\s+~\s+'([^']+)'/.exec(stores)?.[1];
 if (sqlRegex !== SLUG_REGEX.source) errors.push(`regex de slug différente : SQL=${sqlRegex} TS=${SLUG_REGEX.source}`);
 const sqlReserved = /slug\s+not\s+in\s+\(([^)]+)\)/.exec(stores)?.[1].match(/'([^']+)'/g)?.map((s) => s.slice(1, -1)) ?? [];

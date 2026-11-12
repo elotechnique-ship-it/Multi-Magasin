@@ -1,0 +1,5 @@
+# PostgreSQL 16 avec pgTAP, pour le développement local et la CI UNIQUEMENT (jamais en production).
+FROM postgres:16
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends postgresql-16-pgtap \
+ && rm -rf /var/lib/apt/lists/*

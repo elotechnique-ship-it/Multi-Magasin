@@ -2,79 +2,44 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { createClient } from "@/lib/supabase/server";
-import { publicEnv } from "@/lib/env";
-import { sanitizeNext } from "@/lib/security/redirect";
-import { fr } from "@/lib/i18n/fr";
+import { requireSessionToken } from "@/lib/auth/session";
+import { withSession } from "@/lib/db/with-session";
+import { acceptInvitationRpc } from "@/lib/db/queries/stores";
 
 export type FormState = { error?: string; success?: string };
 
-const loginSchema = z.object({
-  email: z.string().trim().toLowerCase().email().max(254),
-  password: z.string().min(1).max(256),
-  next: z.string().max(2048).optional(),
-});
+const UNAVAILABLE = "L'authentification arrive avec le lot B3 : la connexion n'est pas encore disponible.";
 
-export async function login(_prev: FormState, formData: FormData): Promise<FormState> {
-  const parsed = loginSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return { error: fr.auth.invalid };
-
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({
-    email: parsed.data.email,
-    password: parsed.data.password,
-  });
-  // Message générique : on ne distingue pas « compte inexistant » de « mot de passe erroné ».
-  if (error) return { error: fr.auth.invalid };
-
-  redirect(sanitizeNext(parsed.data.next));
+// Lot B3 : connexion, déconnexion, réinitialisation de mot de passe (bibliothèque d'authentification).
+export async function login(_prev: FormState, _formData: FormData): Promise<FormState> {
+  return { error: UNAVAILABLE };
 }
 
 export async function signOut(): Promise<void> {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
   redirect("/auth/connexion");
 }
 
-const emailSchema = z.object({ email: z.string().trim().toLowerCase().email().max(254) });
-
-export async function requestPasswordReset(_prev: FormState, formData: FormData): Promise<FormState> {
-  const parsed = emailSchema.safeParse(Object.fromEntries(formData));
-  if (parsed.success) {
-    const supabase = await createClient();
-    await supabase.auth.resetPasswordForEmail(parsed.data.email, {
-      redirectTo: `${publicEnv.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/auth/reinitialisation`,
-    });
-  }
-  // Même réponse dans tous les cas : pas d'énumération de comptes.
-  return { success: fr.auth.forgotSent };
+export async function requestPasswordReset(_prev: FormState, _formData: FormData): Promise<FormState> {
+  // Même réponse dans tous les cas (pas d'énumération de comptes) ; l'envoi réel arrive avec B3/B4.
+  return { success: "Si un compte existe pour cette adresse, un lien de réinitialisation sera envoyé (disponible au lot B3)." };
 }
 
-const resetSchema = z.object({ password: z.string().min(12).max(128) });
-
-export async function updatePassword(_prev: FormState, formData: FormData): Promise<FormState> {
-  const parsed = resetSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return { error: "Le mot de passe doit contenir au moins 12 caractères." };
-
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Lien expiré. Recommencez la procédure." };
-
-  const { error } = await supabase.auth.updateUser({ password: parsed.data.password });
-  if (error) return { error: "Impossible de mettre à jour le mot de passe." };
-  redirect("/magasin");
+export async function updatePassword(_prev: FormState, _formData: FormData): Promise<FormState> {
+  return { error: UNAVAILABLE };
 }
 
 const tokenSchema = z.object({ token: z.string().min(16).max(256) });
 
+/** Réel dès B2 : la base vérifie le jeton d'invitation, l'adresse e-mail du compte connecté et l'expiration. */
 export async function acceptInvitation(_prev: FormState, formData: FormData): Promise<FormState> {
   const parsed = tokenSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Invitation invalide ou expirée." };
 
-  const supabase = await createClient();
-  const { error } = await supabase.rpc("accept_invitation", { p_token: parsed.data.token });
-  if (error) return { error: "Invitation invalide ou expirée." };
+  const session = await requireSessionToken("/auth/invitation");
+  try {
+    await withSession(session, (tx) => acceptInvitationRpc(tx, parsed.data.token));
+  } catch {
+    return { error: "Invitation invalide ou expirée." }; // message générique : aucune fuite sur l'existence du jeton
+  }
   redirect("/magasin");
 }

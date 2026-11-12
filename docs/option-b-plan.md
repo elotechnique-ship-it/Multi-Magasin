@@ -1,6 +1,6 @@
 # Option B : Railway seul (sans Supabase) : plan détaillé
 
-**Statut : PLAN POUR VALIDATION. Aucun code n'est écrit ni modifié avant votre accord.**
+**Statut : plan VALIDÉ (« ok », 11 nov. 2026). B0 terminé ; B1 et B2 livrés non validés : voir `b0-decision-note.md`, `b1-report.md`, `b2-report.md`.**
 **Décision du maître d'ouvrage :** option B retenue le 11 novembre 2026.
 
 ## 1. Principe

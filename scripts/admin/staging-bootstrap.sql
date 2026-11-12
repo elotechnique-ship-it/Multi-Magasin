@@ -1,5 +1,5 @@
 -- PRÉPRODUCTION UNIQUEMENT. Données fictives. JAMAIS en production ni sur le projet existant.
--- Crée un magasin de démonstration actif dont le propriétaire est un compte DÉJÀ existant dans auth.users.
+-- Crée un magasin de démonstration actif dont le propriétaire est un compte DÉJÀ existant dans auth."user".
 -- (La création de magasin par le SuperAdmin arrive en Phase 2 ; ce script la remplace en attendant.)
 --
 -- Usage (depuis votre poste, avec l'URL de connexion du projet de PRÉPRODUCTION) :
@@ -35,7 +35,7 @@ with cat as (
 ), mem as (
   -- user_id NULL si l'e-mail est inconnu => violation NOT NULL => annulation de toute la transaction
   insert into public.store_members (store_id, user_id, status)
-  values ((select id from s), (select id from auth.users where lower(email) = lower(:'owner_email')), 'active')
+  values ((select id from s), (select id from auth."user" where lower(email) = lower(:'owner_email')), 'active')
   returning id
 )
 insert into public.member_roles (member_id, role_id)

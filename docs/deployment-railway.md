@@ -1,97 +1,85 @@
-# Déploiement sur Railway (préproduction)
+# Déploiement sur Railway (option B)
 
-> **Document caduc pour l'option B.** Il décrit l'option A (Railway + Supabase) et sera réécrit au lot B5 de `option-b-plan.md`. Ne pas l'exécuter tant que le plan B n'est pas validé : il crée un projet Supabase.
+**Portée : PRÉPRODUCTION, données fictives uniquement.** La production réelle exige : lot B5 terminé (sauvegardes testées), porte 3 franchie et autorisation écrite.
 
+## Ce qui peut être déployé aujourd'hui
 
-**Portée autorisée :** environnement de **préproduction**, avec un projet Supabase **neuf**. La production réelle et le projet Supabase existant (Gate A) ne sont **pas** concernés.
-
-## Ce que Railway héberge, et ce qu'il n'héberge pas
-
-| Élément | Hébergé par |
+| Élément | État |
 |---|---|
-| Application Next.js | **Railway** |
-| Base PostgreSQL, authentification, stockage | **Supabase** (projet séparé) |
+| **Base PostgreSQL** (rôles, 9 migrations, référentiels) | **Déployable maintenant** (procédure A ci-dessous) |
+| **Application Next.js** | **Pas encore** : le code utilise encore Supabase (lot B2) et n'a pas d'authentification (lot B3). Procédure B ci-dessous, pour plus tard |
 
-Railway ne remplace pas Supabase : il faut **les deux**.
+## Procédure A : base PostgreSQL de préproduction
 
-## Avertissement avant de commencer
+**Avant de commencer (recommandé) :** avoir réussi `npm run db:test` en local (porte 1). Sinon, vous faites la première exécution des migrations sur un serveur distant. C'est acceptable en préproduction, mais une erreur se corrige plus vite en local.
 
-La Phase 1 n'est **pas validée** : les migrations et les tests pgTAP n'ont jamais été exécutés. Déployer maintenant revient à faire cette première exécution sur un environnement distant. C'est acceptable en préproduction avec des données fictives, **à condition** de suivre l'ordre ci-dessous. Ce qui sera déployé n'est que la Phase 1 : connexion, double authentification, tableaux de bord vides. **Il n'existe pas encore d'écran de création de magasin** (Phase 2) ; le script `scripts/admin/staging-bootstrap.sql` la remplace en attendant.
+Prérequis sur votre poste : Node ≥ 22.18, `npm install` fait, client `psql`.
 
-## Étapes (dans cet ordre)
+### A1. Créer la base sur Railway
+1. Nouveau projet Railway, puis *Add* > *Database* > **PostgreSQL**.
+2. Vérifier la version : l'accès au serveur étant décrit ci-dessous, lancer `select version();`. **PostgreSQL 15 ou plus est obligatoire** (contrainte `UNIQUE NULLS NOT DISTINCT`). Si la version est plus ancienne, arrêtez-vous et dites-le-moi.
+3. La base est **privée par défaut** : aucune action pour l'instant.
 
-### 0. Recommandé : valider en local d'abord (environ 15 minutes)
-Au minimum les étapes 1 à 4 du `README.md` (`check:static`, `supabase start`, `db lint`, `supabase test db`). Si un test échoue en local, il échouera aussi en distant, mais en plus vous aurez écrit dans une base hébergée.
+### A2. Ouvrir temporairement l'accès externe
+Service PostgreSQL > *Settings* > *Networking* > *Public Access*. Cela crée un proxy TCP et remplit la variable `DATABASE_PUBLIC_URL`. Le trafic sortant est facturé : ne laissez pas l'accès ouvert plus longtemps que nécessaire.
 
-### 1. Figer les dépendances
+Dans votre terminal (ne collez jamais cette URL dans une conversation) :
 ```bash
-npm install        # génère package-lock.json
-git add package-lock.json && git commit -m "Fige les dépendances"
+export ADMIN_DATABASE_URL="<valeur de DATABASE_PUBLIC_URL, avec ?sslmode=require>"
+psql "$ADMIN_DATABASE_URL" -c "select version();"
+psql "$ADMIN_DATABASE_URL" -c "select rolsuper from pg_roles where rolname = current_user;"   # doit afficher t
 ```
-Sans fichier de verrouillage, Railway installe les dernières versions autorisées à chaque build : résultat non reproductible.
 
-### 2. Créer un projet Supabase NEUF de préproduction
-- Nouveau projet, nom explicite (ex. `commerce-staging`). **Pas** le projet existant.
-- Région : proche de Railway et des utilisateurs (Europe de l'Ouest probable) ; à choisir maintenant, elle ne se change pas ensuite.
-- Noter, sans les partager : l'URL du projet, la clé `anon`, la référence du projet. La clé `service_role` n'est **pas** nécessaire en Phase 1 : ne la renseignez pas sur Railway (moindre privilège).
-
-### 3. Appliquer les migrations sur le projet de préproduction
+### A3. Créer les quatre rôles applicatifs
+Générer quatre mots de passe forts, **à ranger dans un gestionnaire de mots de passe** (sans caractères `/ + = @ :` pour éviter l'encodage d'URL) :
 ```bash
-npx supabase login
-npx supabase link --project-ref <REF_DU_PROJET_STAGING>
-npx supabase db push
+openssl rand -base64 32 | tr -d '/+=' | cut -c1-32     # à répéter 4 fois
 ```
-Vérifiez que `link` pointe bien sur le projet de **préproduction** avant `db push`. Les 8 migrations ajoutent des objets et ne suppriment rien. N'utilisez **jamais** `supabase db reset` sur un projet distant.
-
-### 4. Régler l'authentification (Supabase > Authentication)
-| Réglage | Valeur |
-|---|---|
-| Inscription publique (sign-ups) | **Désactivée** |
-| Longueur minimale du mot de passe | 12 |
-| Confirmation d'e-mail | Activée |
-| MFA TOTP | Activée |
-| Site URL | `https://<domaine-railway>` (après l'étape 6) |
-| Redirect URLs | `https://<domaine-railway>/auth/callback` uniquement |
-| CAPTCHA | À activer dès disponible (élément ouvert) |
-
-### 5. Créer Railway : projet et variables
-1. Nouveau projet Railway > *Deploy from GitHub repo* (le code doit être dans un dépôt GitHub **privé**).
-2. Variables du service :
-
-| Variable | Valeur |
-|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | URL du projet Supabase de préproduction |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | clé `anon` du projet de préproduction |
-| `NEXT_PUBLIC_SITE_URL` | `https://<domaine-railway>` (voir étape 6) |
-
-Les variables `NEXT_PUBLIC_*` sont **intégrées au code au moment du build** : toute modification exige un nouveau déploiement.
-
-### 6. Domaine, puis redéploiement
-1. Service > *Settings* > *Networking* > générer un domaine.
-2. Renseigner `NEXT_PUBLIC_SITE_URL` avec ce domaine, puis redéployer.
-3. Reporter ce domaine dans Supabase (étape 4 : Site URL et Redirect URLs).
-
-`railway.json` configure déjà la commande de démarrage, la sonde de santé `/api/health` et le redémarrage automatique.
-
-### 7. Premier SuperAdmin et magasin de démonstration
-1. Supabase > Authentication > *Add user* (invitation) : créer votre compte administrateur ; ouvrir le lien reçu pour définir le mot de passe.
-2. Promouvoir ce compte : `scripts/admin/create-platform-admin.sql` (via psql ou SQL Editor du projet de **préproduction**).
-3. Créer un magasin fictif pour tester : `scripts/admin/staging-bootstrap.sql` (compte propriétaire déjà existant).
-
-### 8. Vérifications après déploiement
+Puis, une seule fois :
 ```bash
-curl -s https://<domaine>/api/health                       # {"status":"ok"}
-curl -sI https://<domaine>/magasin | head -5               # redirection vers /auth/connexion
-curl -sI https://<domaine>/ | grep -i -E "x-frame|x-content-type|strict-transport|referrer"
+psql "$ADMIN_DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -v migrator_password='…' -v auth_password='…' -v runtime_password='…' -v public_password='…' \
+  -f db/bootstrap/roles.sql
 ```
-Puis à la main : connexion, enrôlement MFA du SuperAdmin, accès à `/superadmin/dashboard`, connexion du propriétaire de démonstration et accès à `/magasin/<slug>`, accès refusé (404) à un magasin dont on n'est pas membre. Envoyez-moi les résultats : je les compare au rapport de Phase 1.
+
+### A4. Appliquer les migrations
+Remplacer hôte et port par ceux de `ADMIN_DATABASE_URL` ; la base s'appelle par défaut `railway`.
+```bash
+export MIGRATION_DATABASE_URL="postgres://app_migrator:<mot-de-passe-migrateur>@<hôte-proxy>:<port>/railway?sslmode=require"
+node scripts/db/migrate.mjs --target staging --dry-run    # affiche le plan, ne modifie rien
+node scripts/db/migrate.mjs --target staging              # applique les 9 migrations
+```
+Le script refuse tout rôle autre que `app_migrator`, refuse un hôte local pour `staging`, n'a aucune option de retour arrière ni de réinitialisation, et annule une migration entière si elle échoue.
+
+### A5. Vérifier
+```bash
+# en tant que rôle applicatif : sans session valide, aucune donnée visible ; schéma auth inaccessible
+psql "postgres://app_runtime:<mdp-runtime>@<hôte-proxy>:<port>/railway?sslmode=require" \
+  -c "select count(*) from public.stores;" \
+  -c "select * from auth.\"user\";"
+```
+Attendu : `0` pour la première requête ; **`permission denied for schema auth`** pour la seconde. Envoyez-moi ces deux sorties : elles remplacent, pour l'essentiel, les tests pgTAP que Railway ne peut pas exécuter.
+
+### A6. Refermer l'accès externe
+Service PostgreSQL > *Networking* > supprimer le *Public Access*. La base redevient privée.
+
+### Limites de la procédure A
+- Les tests pgTAP **ne s'exécutent pas** sur Railway (le lanceur refuse toute base distante). Ils restent un contrôle local et de CI.
+- **Aucune sauvegarde n'est configurée** : pas de données réelles avant le lot B5.
+- Une migration appliquée ne se modifie jamais : un correctif est une **nouvelle** migration.
+
+## Procédure B : application (à faire après les lots B2 et B3)
+
+À compléter lors du lot B5. Points déjà établis :
+
+1. Service applicatif créé depuis un dépôt GitHub **privé** (le fichier `railway.json` configure démarrage, sonde `/api/health` et redémarrage).
+2. **Piège à éviter :** la variable `DATABASE_URL` fournie par Railway pour PostgreSQL contient les identifiants du **superutilisateur**. **Ne jamais la référencer depuis l'application.** Le code de l'application **refuse de démarrer** si `DATABASE_URL` n'utilise pas le rôle `app_runtime` (garde-fou du lot B2). Définir à la place, dans le service applicatif, une variable `DATABASE_URL` dont l'URL utilise le rôle voulu et l'adresse privée du service (`<service>.railway.internal:5432`) :
+   - `DATABASE_URL` : rôle `app_runtime`
+   - `AUTH_DATABASE_URL` : rôle `app_auth`
+3. `MIGRATION_DATABASE_URL` ne doit **jamais** être définie sur le service applicatif.
+4. Variables Supabase (`NEXT_PUBLIC_SUPABASE_*`, `SUPABASE_SERVICE_ROLE_KEY`) : **supprimées**, à retirer du service Railway s'il en a encore. Seules `NEXT_PUBLIC_SITE_URL` et `DATABASE_URL` sont lues par le code actuel (B3 ajoutera `AUTH_DATABASE_URL` et `BETTER_AUTH_SECRET`).
+5. Les migrations s'appliquent depuis un poste d'opérateur ou la CI, jamais au démarrage de l'application.
 
 ## Retour arrière
-- **Application** : Railway > *Deployments* > redéployer la version précédente.
-- **Base** : les migrations sont additives ; un retour arrière se fait par une **nouvelle migration**, jamais par suppression ou réinitialisation.
-
-## Points de vigilance
-- Sur un domaine `*.up.railway.app`, l'en-tête HSTS est appliqué mais sans effet de préchargement ; à réévaluer avec un domaine propre.
-- La CSP est en mode **Report-Only** : elle n'est pas encore bloquante.
-- Aucun mécanisme de sauvegarde n'est configuré : les données de préproduction sont jetables.
-- La production réelle nécessitera : domaine propre, plan Supabase avec restauration ponctuelle, CAPTCHA, validation complète de la Phase 1, et votre **autorisation écrite**.
+- **Application** : redéployer la version précédente depuis Railway.
+- **Base** : nouvelle migration corrective. Aucune suppression ni réinitialisation d'une base distante.

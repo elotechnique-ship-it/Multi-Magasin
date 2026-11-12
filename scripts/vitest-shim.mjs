@@ -25,5 +25,9 @@ export function expect(actual) {
     toMatch: (re) => assert.match(String(actual), re),
     toBeGreaterThanOrEqual: (n) => assert.ok(actual >= n, `${actual} < ${n}`),
     toThrow: (E) => assert.throws(actual, E),
+    not: {
+      toThrow: () => assert.doesNotThrow(actual),
+      toBe: (e) => assert.notStrictEqual(actual, e),
+    },
   };
 }

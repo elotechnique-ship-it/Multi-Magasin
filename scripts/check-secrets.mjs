@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Détection de secrets et de fuites serveur -> client. Complète gitleaks (CI) par des règles propres au projet.
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("../", import.meta.url).pathname;
+const root = fileURLToPath(new URL("../", import.meta.url));
 const SKIP_DIRS = new Set(["node_modules", ".next", ".git", "coverage", "playwright-report", "test-results"]);
 const TEXT_EXT = /\.(ts|tsx|js|mjs|cjs|json|sql|md|yml|yaml|toml|css|example)$/;
 const errors = [];
@@ -20,11 +21,14 @@ function walk(dir, out = []) {
 }
 
 const files = walk(root);
-const SERVICE_KEY_ALLOWED = [/^lib\/env\.server\.ts$/, /^lib\/supabase\/admin\.ts$/, /^\.env\.example$/, /^docs\//, /^scripts\//, /^\.github\//, /^README\.md$/];
 const SELF = "scripts/check-secrets.mjs";
+// DATABASE_URL (rôle app_runtime) : seul lib/env.server.ts la lit dans le code ; ailleurs, uniquement outillage et documentation.
+const DATABASE_URL_ALLOWED = [/^lib\/env\.server\.ts$/, /^lib\/db\/(pool|runtime-url)\.ts$/, /^docs\//, /^scripts\//, /^\.github\//, /^README\.md$/, /^\.env\.example$/, /^tests\//];
+// Identifiants de base : MIGRATION_DATABASE_URL (rôle app_migrator, BYPASSRLS) ne doit exister que dans les outils d'exploitation.
+const MIGRATOR_ALLOWED = [/^scripts\//, /^docs\//, /^\.github\//, /^README\.md$/, /^\.env\.example$/, /^lib\/db\/(migration-plan|runtime-url)\.ts$/, /^tests\/unit\//];
 
 for (const abs of files) {
-  const rel = relative(root, abs);
+  const rel = relative(root, abs).split(sep).join("/"); // séparateurs normalisés (Windows)
 
   // Aucun fichier .env réel dans le dépôt
   if (/(^|\/)\.env(\.[a-z]+)?$/.test(rel) && rel !== ".env.example") errors.push(`${rel} : fichier d'environnement réel présent (interdit)`);
@@ -38,9 +42,18 @@ for (const abs of files) {
   if (/-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/.test(text)) errors.push(`${rel} : clé privée`);
   if (/NEXT_PUBLIC_[A-Z_]*(SERVICE|SECRET|PRIVATE)[A-Z_]*/.test(text)) errors.push(`${rel} : variable NEXT_PUBLIC_ au nom de secret (serait exposée au navigateur)`);
 
-  // La clé service role ne peut être référencée que dans les fichiers autorisés
-  if (/SUPABASE_SERVICE_ROLE_KEY/.test(text) && !SERVICE_KEY_ALLOWED.some((re) => re.test(rel))) {
-    errors.push(`${rel} : référence à SUPABASE_SERVICE_ROLE_KEY hors des fichiers autorisés`);
+  // DATABASE_URL (rôle app_runtime) : lue uniquement par lib/env.server.ts ; jamais exposée au navigateur
+  if (/(^|[^A-Z_])DATABASE_URL\b/.test(text) && !DATABASE_URL_ALLOWED.some((re) => re.test(rel))) {
+    errors.push(`${rel} : référence à DATABASE_URL hors de lib/env.server.ts`);
+  }
+
+  // Le rôle migrateur ne doit JAMAIS être référencé par le code applicatif (app/, lib/, components/, middleware)
+  if (/MIGRATION_DATABASE_URL|app_migrator/.test(text) && !MIGRATOR_ALLOWED.some((re) => re.test(rel)) && !/^db\//.test(rel)) {
+    errors.push(`${rel} : référence au rôle migrateur hors des outils d'exploitation`);
+  }
+  // URL de connexion avec mot de passe en clair
+  if (/postgres(ql)?:\/\/[^\s:@\/]+:(?!\*|\.\.\.|x@|secret@|\$|%|<|\{)[^\s@\/]{6,}@/.test(text) && !/^(scripts\/db\/local\.mjs|docker-compose\.yml|tests\/unit\/|docs\/|README\.md)/.test(rel)) {
+    errors.push(`${rel} : URL de connexion PostgreSQL avec mot de passe en clair`);
   }
 
   // Fichiers « use client » : aucun import de module serveur
@@ -48,7 +61,7 @@ for (const abs of files) {
     const head = text.replace(/^\s*(\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*/, "");
     if (/^["']use client["']/.test(head)) {
       for (const m of text.matchAll(/from\s+["']([^"']+)["']/g)) {
-        if (/supabase\/admin|env\.server|^server-only$|supabase\/server|^next\/headers$/.test(m[1])) {
+        if (/env\.server|^server-only$|lib\/db\/|^pg$|^next\/headers$/.test(m[1])) {
           errors.push(`${rel} : composant client important un module serveur (« ${m[1]} »)`);
         }
       }
@@ -57,7 +70,7 @@ for (const abs of files) {
 }
 
 // Modules serveur : doivent importer server-only (échec de build s'ils sont importés côté client)
-for (const f of ["lib/supabase/admin.ts", "lib/env.server.ts"]) {
+for (const f of ["lib/env.server.ts", "lib/db/pool.ts", "lib/db/with-session.ts", "lib/auth/current-session.ts"]) {
   const text = readFileSync(join(root, f), "utf8");
   if (!/import\s+["']server-only["']/.test(text)) errors.push(`${f} : doit importer "server-only"`);
 }
